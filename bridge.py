@@ -6,13 +6,11 @@ from eth_account import Account
 import os
 
 def connect_to(chain):
-    api_url = ""
     if chain == 'source': 
         api_url = "https://api.avax-test.network/ext/bc/C/rpc" 
     elif chain == 'destination': 
         api_url = "https://data-seed-prebsc-1-s1.binance.org:8545/" 
     else:
-        print(f"Invalid chain: {chain}")
         return None
 
     w3 = Web3(Web3.HTTPProvider(api_url))
@@ -47,24 +45,21 @@ def scan_blocks(chain, contract_info="contract_info.json"):
 
     acct = Account.from_key(sk)
     
-    # Load contract info
     source_info = get_contract_info('source', contract_info)
     dest_info = get_contract_info('destination', contract_info)
 
     if not source_info or not dest_info:
-        print("Could not load contract info.")
+        print("Could not load contract info")
         return
 
-    # Connect to chains
     w3_source = connect_to('source')
     w3_dest = connect_to('destination')
 
-    # Load contracts
     source_contract = w3_source.eth.contract(address=source_info['address'], abi=source_info['abi'])
     dest_contract = w3_dest.eth.contract(address=dest_info['address'], abi=dest_info['abi'])
 
     if chain == 'source':
-        # Listen on Source (Avalanche), Act on Destination (BSC)
+        # 监听 Source (Avalanche) 上的 Deposit，去 Destination (BSC) 执行 wrap
         current_block = w3_source.eth.block_number
         start_block = current_block - 5
         
@@ -72,24 +67,25 @@ def scan_blocks(chain, contract_info="contract_info.json"):
         events = event_filter.get_all_entries()
 
         for evt in events:
-            print(f"Found Deposit event: {evt}")
+            print(f"Found Deposit: {evt.transactionHash.hex()}")
             token = evt.args['token']
             recipient = evt.args['recipient']
             amount = evt.args['amount']
             
-            nonce = w3_dest.eth.get_transaction_count(acct.address)
             tx = dest_contract.functions.wrap(token, recipient, amount).build_transaction({
                 'from': acct.address,
-                'nonce': nonce,
+                'nonce': w3_dest.eth.get_transaction_count(acct.address),
+                'gas': 300000,
                 'gasPrice': w3_dest.eth.gas_price
             })
             
             signed_tx = w3_dest.eth.account.sign_transaction(tx, private_key=sk)
-            w3_dest.eth.send_raw_transaction(signed_tx.raw) # Using .raw for v6+
-            print(f"Sent wrap transaction to destination")
+            # FIX: 使用 .raw_transaction (对应 web3.py v7.5.0)
+            w3_dest.eth.send_raw_transaction(signed_tx.raw_transaction)
+            print("Sent wrap transaction")
 
     elif chain == 'destination':
-        # Listen on Destination (BSC), Act on Source (Avalanche)
+        # 监听 Destination (BSC) 上的 Unwrap，去 Source (Avalanche) 执行 withdraw
         current_block = w3_dest.eth.block_number
         start_block = current_block - 5
         
@@ -97,18 +93,20 @@ def scan_blocks(chain, contract_info="contract_info.json"):
         events = event_filter.get_all_entries()
 
         for evt in events:
-            print(f"Found Unwrap event: {evt}")
+            print(f"Found Unwrap: {evt.transactionHash.hex()}")
+            # 根据 Destination.t.sol: event Unwrap(..., address indexed to, uint256 amount );
             underlying_token = evt.args['underlying_token']
             to = evt.args['to']
             amount = evt.args['amount']
             
-            nonce = w3_source.eth.get_transaction_count(acct.address)
             tx = source_contract.functions.withdraw(underlying_token, to, amount).build_transaction({
                 'from': acct.address,
-                'nonce': nonce,
+                'nonce': w3_source.eth.get_transaction_count(acct.address),
+                'gas': 300000,
                 'gasPrice': w3_source.eth.gas_price
             })
             
             signed_tx = w3_source.eth.account.sign_transaction(tx, private_key=sk)
-            w3_source.eth.send_raw_transaction(signed_tx.raw) # Using .raw for v6+
-            print(f"Sent withdraw transaction to source")
+            # FIX: 使用 .raw_transaction (对应 web3.py v7.5.0)
+            w3_source.eth.send_raw_transaction(signed_tx.raw_transaction)
+            print("Sent withdraw transaction")
