@@ -1,0 +1,17 @@
+# 忽略 SSH 私钥
+ssh_keys/id_mcit5830
+
+# 忽略账户私钥文件
+secret_key.txt
+
+# 忽略 Python 缓存
+__pycache__/
+*.pyc
+
+# 忽略 Codio 文件
+.codio
+.settings
+.guides/
+
+# 忽略 Bridge 文件夹 (如果里面没有需要提交的代码)
+Bridge/
