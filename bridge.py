@@ -1,9 +1,7 @@
 from web3 import Web3
 from web3.providers.rpc import HTTPProvider
 from web3.middleware import ExtraDataToPOAMiddleware 
-from datetime import datetime
 import json
-import pandas as pd
 from eth_account import Account
 import os
 
@@ -61,14 +59,18 @@ def scan_blocks(chain, contract_info="contract_info.json"):
     dest_contract = w3_dest.eth.contract(address=dest_info['address'], abi=dest_info['abi'])
 
     if chain == 'source':
-        # 监听 Source，向 Destination 发送交易
+        # Source -> Destination
         current_block = w3_source.eth.block_number
-        start_block = current_block - 5
+        # 修改点：扩大扫描范围到 200 个区块
+        start_block = current_block - 200
+        if start_block < 0: start_block = 0
+        
+        print(f"Scanning Source (Avalanche) from block {start_block} to {current_block}")
         
         event_filter = source_contract.events.Deposit.create_filter(from_block=start_block, to_block='latest')
         events = event_filter.get_all_entries()
 
-        # --- FIX: 获取一次初始 Nonce ---
+        # 获取初始 nonce
         nonce = w3_dest.eth.get_transaction_count(acct.address)
 
         for evt in events:
@@ -79,17 +81,46 @@ def scan_blocks(chain, contract_info="contract_info.json"):
             
             tx = dest_contract.functions.wrap(token, recipient, amount).build_transaction({
                 'from': acct.address,
-                'nonce': nonce, # 使用手动 Nonce
+                'nonce': nonce,
+                'gas': 300000,
                 'gasPrice': w3_dest.eth.gas_price
             })
             
             signed_tx = w3_dest.eth.account.sign_transaction(tx, private_key=sk)
-            w3_dest.eth.send_raw_transaction(signed_tx.raw_transaction)
-            print("Sent wrap transaction")
-            
-            # --- FIX: 手动增加 Nonce ---
-            nonce += 1
+            try:
+                w3_dest.eth.send_raw_transaction(signed_tx.raw_transaction)
+                print(f"Sent wrap transaction (Nonce: {nonce})")
+                nonce += 1
+            except Exception as e:
+                print(f"Error sending wrap: {e}")
 
     elif chain == 'destination':
-        # 监听 Destination，向 Source 发送交易
-        current_block = w3_dest.eth
+        # Destination -> Source
+        current_block = w3_dest.eth.block_number
+        # 修改点：扩大扫描范围到 200 个区块
+        start_block = current_block - 200
+        if start_block < 0: start_block = 0
+        
+        print(f"Scanning Destination (BSC) from block {start_block} to {current_block}")
+        
+        event_filter = dest_contract.events.Unwrap.create_filter(from_block=start_block, to_block='latest')
+        events = event_filter.get_all_entries()
+
+        # 获取初始 nonce
+        nonce = w3_source.eth.get_transaction_count(acct.address)
+
+        for evt in events:
+            print(f"Found Unwrap: {evt.transactionHash.hex()}")
+            underlying_token = evt.args['underlying_token']
+            to = evt.args['to']
+            amount = evt.args['amount']
+            
+            tx = source_contract.functions.withdraw(underlying_token, to, amount).build_transaction({
+                'from': acct.address,
+                'nonce': nonce,
+                'gas': 300000,
+                'gasPrice': w3_source.eth.gas_price
+            })
+            
+            signed_tx = w3_source.eth.account.sign_transaction(tx, private_key=sk)
+            try:
