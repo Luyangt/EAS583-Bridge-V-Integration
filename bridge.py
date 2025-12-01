@@ -1,7 +1,9 @@
 from web3 import Web3
 from web3.providers.rpc import HTTPProvider
 from web3.middleware import ExtraDataToPOAMiddleware 
+from datetime import datetime
 import json
+import pandas as pd
 from eth_account import Account
 import os
 
@@ -59,12 +61,15 @@ def scan_blocks(chain, contract_info="contract_info.json"):
     dest_contract = w3_dest.eth.contract(address=dest_info['address'], abi=dest_info['abi'])
 
     if chain == 'source':
-        # 监听 Source (Avalanche) 上的 Deposit，去 Destination (BSC) 执行 wrap
+        # 监听 Source，向 Destination 发送交易
         current_block = w3_source.eth.block_number
         start_block = current_block - 5
         
         event_filter = source_contract.events.Deposit.create_filter(from_block=start_block, to_block='latest')
         events = event_filter.get_all_entries()
+
+        # --- FIX: 获取一次初始 Nonce ---
+        nonce = w3_dest.eth.get_transaction_count(acct.address)
 
         for evt in events:
             print(f"Found Deposit: {evt.transactionHash.hex()}")
@@ -74,39 +79,17 @@ def scan_blocks(chain, contract_info="contract_info.json"):
             
             tx = dest_contract.functions.wrap(token, recipient, amount).build_transaction({
                 'from': acct.address,
-                'nonce': w3_dest.eth.get_transaction_count(acct.address),
-                'gas': 300000,
+                'nonce': nonce, # 使用手动 Nonce
                 'gasPrice': w3_dest.eth.gas_price
             })
             
             signed_tx = w3_dest.eth.account.sign_transaction(tx, private_key=sk)
-            # FIX: 使用 .raw_transaction (对应 web3.py v7.5.0)
             w3_dest.eth.send_raw_transaction(signed_tx.raw_transaction)
             print("Sent wrap transaction")
+            
+            # --- FIX: 手动增加 Nonce ---
+            nonce += 1
 
     elif chain == 'destination':
-        # 监听 Destination (BSC) 上的 Unwrap，去 Source (Avalanche) 执行 withdraw
-        current_block = w3_dest.eth.block_number
-        start_block = current_block - 5
-        
-        event_filter = dest_contract.events.Unwrap.create_filter(from_block=start_block, to_block='latest')
-        events = event_filter.get_all_entries()
-
-        for evt in events:
-            print(f"Found Unwrap: {evt.transactionHash.hex()}")
-            # 根据 Destination.t.sol: event Unwrap(..., address indexed to, uint256 amount );
-            underlying_token = evt.args['underlying_token']
-            to = evt.args['to']
-            amount = evt.args['amount']
-            
-            tx = source_contract.functions.withdraw(underlying_token, to, amount).build_transaction({
-                'from': acct.address,
-                'nonce': w3_source.eth.get_transaction_count(acct.address),
-                'gas': 300000,
-                'gasPrice': w3_source.eth.gas_price
-            })
-            
-            signed_tx = w3_source.eth.account.sign_transaction(tx, private_key=sk)
-            # FIX: 使用 .raw_transaction (对应 web3.py v7.5.0)
-            w3_source.eth.send_raw_transaction(signed_tx.raw_transaction)
-            print("Sent withdraw transaction")
+        # 监听 Destination，向 Source 发送交易
+        current_block = w3_dest.eth
