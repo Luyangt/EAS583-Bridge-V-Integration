@@ -1,16 +1,13 @@
 from web3 import Web3
 from web3.providers.rpc import HTTPProvider
 from web3.middleware import ExtraDataToPOAMiddleware 
-from datetime import datetime
 import json
-import pandas as pd
 from eth_account import Account
 import os
 
 def connect_to(chain):
     if chain == 'source': 
         api_url = f"https://api.avax-test.network/ext/bc/C/rpc" 
-
     if chain == 'destination': 
         api_url = f"https://data-seed-prebsc-1-s1.binance.org:8545/" 
 
@@ -19,13 +16,12 @@ def connect_to(chain):
         w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
     return w3
 
-
 def get_contract_info(chain, contract_info):
     try:
         with open(contract_info, 'r')  as f:
             contracts = json.load(f)
     except Exception as e:
-        print( f"Failed to read contract info\nPlease contact your instructor\n{e}" )
+        print( f"Failed to read contract info: {e}" )
         return 0
     return contracts[chain]
 

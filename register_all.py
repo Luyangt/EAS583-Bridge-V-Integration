@@ -4,18 +4,18 @@ from web3.middleware import ExtraDataToPOAMiddleware
 from web3.providers.rpc import HTTPProvider
 from eth_account import Account
 
-# --- 账户信息 ---
+# 账户信息
 pk = "0xb2ac935ae1f87c76d5f5704e6b247b790684d8a7d81c0c3f4a2c5d6d444cfed9"
 my_addr = "0x7e85CD7990A1d46c6C45a3D852D858E3578d5A67"
 
-# --- 合约地址 ---
-# Source (Avalanche): 0xC847235E1b5788E78e74cEb7d7001bAb7Ed29AdB
-# Dest (BSC): 0x7706fF394525Bf7f0c98282f488dD2399B672bcE
-source_bridge_addr = "0xC847235E1b5788E78e74cEb7d7001bAb7Ed29AdB"
-dest_bridge_addr = "0x7706fF394525Bf7f0c98282f488dD2399B672bcE"
+# --- [NEW] 合约地址 ---
+source_bridge_addr = "0x7cdb0d569b91Bb444F33c72bCA26788e197e606b"
+dest_bridge_addr = "0x8f7F3cA68b745C9E0C49d0926e45388A7D0Def74"
 
-# --- 代币 ---
-my_token = "0xB6A529030973c8BeFe9Cb3ac9E8e608bE9a8a58C"
+# --- [NEW] 你的测试代币 ---
+my_token = "0x618227A793bc36DbfAa0eabEE9f5A68D8f933719"
+
+# 官方代币
 token_a = "0xc677c31AD31F73A5290f5ef067F8CEF8d301e45c"
 token_b = "0x0773b81e0524447784CcE1F3808fed6AaA156eC8"
 
@@ -33,7 +33,7 @@ def run_tx(w3_instance, func, msg, manual_nonce):
         tx = func.build_transaction({
             'from': my_addr,
             'nonce': manual_nonce,
-            'gas': 5000000,  # <--- 修改点：增加到了 500万 Gas
+            'gas': 5000000,
             'gasPrice': w3_instance.eth.gas_price
         })
         signed = w3_instance.eth.account.sign_transaction(tx, pk)
@@ -43,10 +43,10 @@ def run_tx(w3_instance, func, msg, manual_nonce):
         receipt = w3_instance.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
         if receipt.status == 1:
             print("Success")
+            return True
         else:
             print("Failed (Reverted)")
-            # 如果失败，通常意味着已经注册过了，或者是合约逻辑拒绝了
-        return True
+            return False
     except Exception as e:
         if "already" in str(e).lower():
              print("Skipping - seems already registered")
@@ -67,7 +67,6 @@ def main():
 
     nonce_a = w3_a.eth.get_transaction_count(my_addr)
     nonce_b = w3_b.eth.get_transaction_count(my_addr)
-    print(f"Start Nonces -> Source: {nonce_a}, Dest: {nonce_b}")
 
     # 1. Register My Token
     if run_tx(w3_a, src_contract.functions.registerToken(my_token), "Register My Token (Source)", nonce_a): nonce_a += 1
