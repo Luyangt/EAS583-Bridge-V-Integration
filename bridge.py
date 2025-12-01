@@ -59,68 +59,69 @@ def scan_blocks(chain, contract_info="contract_info.json"):
     dest_contract = w3_dest.eth.contract(address=dest_info['address'], abi=dest_info['abi'])
 
     if chain == 'source':
-        # Source -> Destination
+        # 监听 Source (Avalanche) -> 发送 Wrap 到 Destination (BSC)
         current_block = w3_source.eth.block_number
-        # 修改点：扩大扫描范围到 200 个区块
-        start_block = current_block - 200
-        if start_block < 0: start_block = 0
-        
-        print(f"Scanning Source (Avalanche) from block {start_block} to {current_block}")
+        start_block = current_block - 5
         
         event_filter = source_contract.events.Deposit.create_filter(from_block=start_block, to_block='latest')
         events = event_filter.get_all_entries()
 
-        # 获取初始 nonce
-        nonce = w3_dest.eth.get_transaction_count(acct.address)
-
-        for evt in events:
-            print(f"Found Deposit: {evt.transactionHash.hex()}")
-            token = evt.args['token']
-            recipient = evt.args['recipient']
-            amount = evt.args['amount']
+        if events:
+            print(f"Found {len(events)} Deposit events")
+            nonce = w3_dest.eth.get_transaction_count(acct.address)
             
-            tx = dest_contract.functions.wrap(token, recipient, amount).build_transaction({
-                'from': acct.address,
-                'nonce': nonce,
-                'gas': 300000,
-                'gasPrice': w3_dest.eth.gas_price
-            })
-            
-            signed_tx = w3_dest.eth.account.sign_transaction(tx, private_key=sk)
-            try:
-                w3_dest.eth.send_raw_transaction(signed_tx.raw_transaction)
-                print(f"Sent wrap transaction (Nonce: {nonce})")
-                nonce += 1
-            except Exception as e:
-                print(f"Error sending wrap: {e}")
+            for evt in events:
+                try:
+                    print(f"Processing Deposit: {evt.transactionHash.hex()}")
+                    token = evt.args['token']
+                    recipient = evt.args['recipient']
+                    amount = evt.args['amount']
+                    
+                    tx = dest_contract.functions.wrap(token, recipient, amount).build_transaction({
+                        'from': acct.address,
+                        'nonce': nonce,
+                        'gas': 300000,
+                        'gasPrice': w3_dest.eth.gas_price
+                    })
+                    
+                    signed_tx = w3_dest.eth.account.sign_transaction(tx, private_key=sk)
+                    # FIX: 使用 .raw_transaction
+                    w3_dest.eth.send_raw_transaction(signed_tx.raw_transaction)
+                    print("Sent wrap transaction")
+                    nonce += 1
+                except Exception as e:
+                    print(f"Error processing event: {e}")
 
     elif chain == 'destination':
-        # Destination -> Source
+        # 监听 Destination (BSC) -> 发送 Withdraw 到 Source (Avalanche)
         current_block = w3_dest.eth.block_number
-        # 修改点：扩大扫描范围到 200 个区块
-        start_block = current_block - 200
-        if start_block < 0: start_block = 0
-        
-        print(f"Scanning Destination (BSC) from block {start_block} to {current_block}")
+        start_block = current_block - 5
         
         event_filter = dest_contract.events.Unwrap.create_filter(from_block=start_block, to_block='latest')
         events = event_filter.get_all_entries()
 
-        # 获取初始 nonce
-        nonce = w3_source.eth.get_transaction_count(acct.address)
-
-        for evt in events:
-            print(f"Found Unwrap: {evt.transactionHash.hex()}")
-            underlying_token = evt.args['underlying_token']
-            to = evt.args['to']
-            amount = evt.args['amount']
+        if events:
+            print(f"Found {len(events)} Unwrap events")
+            nonce = w3_source.eth.get_transaction_count(acct.address)
             
-            tx = source_contract.functions.withdraw(underlying_token, to, amount).build_transaction({
-                'from': acct.address,
-                'nonce': nonce,
-                'gas': 300000,
-                'gasPrice': w3_source.eth.gas_price
-            })
-            
-            signed_tx = w3_source.eth.account.sign_transaction(tx, private_key=sk)
-            try:
+            for evt in events:
+                try:
+                    print(f"Processing Unwrap: {evt.transactionHash.hex()}")
+                    underlying_token = evt.args['underlying_token']
+                    to = evt.args['to']
+                    amount = evt.args['amount']
+                    
+                    tx = source_contract.functions.withdraw(underlying_token, to, amount).build_transaction({
+                        'from': acct.address,
+                        'nonce': nonce,
+                        'gas': 300000,
+                        'gasPrice': w3_source.eth.gas_price
+                    })
+                    
+                    signed_tx = w3_source.eth.account.sign_transaction(tx, private_key=sk)
+                    # FIX: 使用 .raw_transaction
+                    w3_source.eth.send_raw_transaction(signed_tx.raw_transaction)
+                    print("Sent withdraw transaction")
+                    nonce += 1
+                except Exception as e:
+                    print(f"Error processing event: {e}")
